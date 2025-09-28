@@ -3,7 +3,7 @@ import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import type { Document } from "langchain/document";
 import { db } from "@/server/db"
 import { v4 as uuidv4 } from 'uuid';
-import type { ChunkData } from "./interfaces";
+import type { ChunkData } from "../interfaces/chunkData";
 
 export class ChunkingService {
   static async extractTextAndChunk(filePath: string): Promise<ChunkData[]> {

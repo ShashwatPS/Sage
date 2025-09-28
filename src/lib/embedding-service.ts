@@ -1,10 +1,6 @@
     import { Pinecone } from "@pinecone-database/pinecone";
-    import type { ChunkData } from "./interfaces";
-
-    interface Results {
-      chunk_id: string,
-      chunk_text: string,
-    }
+    import type { ChunkData } from "../interfaces/chunkData";
+    import type { Results } from "../interfaces/results";
 
     export class EmbeddingService {
       private static pc = new Pinecone({ apiKey: process.env.NEXT_PUBLIC_PINECONE_API_KEY! });
