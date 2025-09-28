@@ -5,26 +5,33 @@ import {
   smoothStream,
   streamText,
 } from "ai";
-import { NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
 import { z } from "zod";
 
 import { auth } from "@/server/auth";
 import { db } from "@/server/db";
-import { env } from "@/env";
-import { supabase } from "@/lib/supabase";
 
 const PROMPT = `
 ### IMPERATIVE:  
 Analyze the following QUESTION with absolute precision. Your analysis must meet the highest standards of Research.  
 
 ## CITATION RULES (STRICTLY APPLY):  
-- Source-Citations:  
-  <citation source-id="[ID]" file-page-number="[Page Number]" file-id="[File ID]" cited-text="[Exact Text]">[ID]</citation>  
-- Always apply all three citation types simultaneously for every reference to a legal source, statutory provision, or company name.  
-- Example citation: <citation source-id="1" file-page-number="1" file-id="e5232b9a" cited-text="[Exact Text]">[1]</citation>  
+- Source-Citations with Chunk Reference:  
+  <citation chunk-id="[Chunk ID]">Finish</citation>  
+- Always reference the specific chunk_id when citing information from document chunks
+- Use the chunk_id provided in the <chunk chunk_id=[ID]></chunk> tags to create accurate citations
+- Example citation: <citation chunk-id="abc123">Finish</citation>  
+
+## CHUNK PROCESSING INSTRUCTIONS:
+- Each document chunk is provided with a unique chunk_id in the format <chunk chunk_id=[ID]></chunk>
+- When referencing information from a chunk, always include the chunk_id in your citation
+- Use chunk_id to maintain traceability between your response and the source material
+- If multiple chunks contain relevant information, cite each chunk_id separately
+
 ## MANDATORY ANALYSIS CRITERIA:  
-- Exclusively rely on the provided files  
+- Exclusively rely on the provided files and chunks
 - Fully account for the chat history to ensure contextual continuity  
+- Reference specific chunk_ids when making claims or providing information
 
 If the facts are complete and the sources sufficient, answer the question without reservations or disclaimers.  
 `;
@@ -74,6 +81,39 @@ export async function POST(req: NextRequest) {
       });
       currentChatId = chat.id;
     }
+
+    const oldFilesID = await db.chat.findMany({
+      where: {
+        id: chatId,
+      },
+      select: {
+        messages: {
+          select: {
+            messageSources: {
+              select: {
+                fileId: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const combinedFileIds = Array.from(
+      new Set([
+        ...(fileIds ?? []),
+        ...(chatId
+          ? oldFilesID
+              .flatMap((chat) =>
+                chat.messages.flatMap((message) =>
+                  message.messageSources.map((source) => source.fileId),
+                ),
+              )
+              .filter((fileId) => !(fileIds ?? []).includes(fileId))
+          : []),
+      ]),
+    );
+
     // Save user message to database
     await db.message.create({
       data: {
@@ -90,45 +130,13 @@ export async function POST(req: NextRequest) {
         },
       },
     });
-    const dbFiles = await db.file.findMany({
-      where: { id: { in: fileIds }, userId: session.user.id },
-    });
 
-    const files = (
-      await Promise.all(
-        dbFiles.map(async (file) => {
-          const { data, error } = await supabase.storage
-            .from("files")
-            .download(file.supabasePath);
-          console.log("error", error);
-          console.log("data", data);
-          if (data && !error) {
-            return {
-              id: file.id,
-              name: file.name,
-              filename: file.name,
-              type: file.fileType,
-              buffer: await data.arrayBuffer(),
-              url: file.supabasePath,
-            };
-          }
-          return null;
-        }),
-      )
-    )
-      .filter(
-        (
-          f,
-        ): f is {
-          id: string;
-          name: string;
-          filename: string;
-          type: string;
-          buffer: ArrayBuffer;
-          url: string;
-        } => f !== null,
-      )
-      .sort((a, b) => a.id.localeCompare(b.id));
+    const EmbeddedService = await import("../../../lib/embedding-service");
+
+    const relevantChunks = await EmbeddedService.EmbeddingService.queryByText(
+      combinedFileIds ?? [],
+      message,
+    );
 
     const stream = createUIMessageStream({
       execute: async ({ writer }) => {
@@ -142,16 +150,15 @@ export async function POST(req: NextRequest) {
             })
             .join("\n") +
           "\n\n" +
-          files
-            .map((file, idx) => {
-              return `<file source-id=[${idx + 1}] file-id=[${file.id}] name=[${file?.name}]></file>`;
+          relevantChunks
+            .map((chunk) => {
+              return `<chunk chunk_id=[${chunk.chunk_id}]></chunk>`;
             })
             .join("\n") +
           "\n\n";
 
         console.log("\n\n User prompt \n\n", userPrompt);
-        console.log("\n\n db files \n\n ", dbFiles);
-        console.log("\n\n Files \n\n", files);
+        console.log("\n\n Relevant Chunks \n\n ", relevantChunks);
 
         // Stream response from Gemini
         const result = streamText({
@@ -162,11 +169,10 @@ export async function POST(req: NextRequest) {
               role: "user",
               content: [
                 { type: "text", text: userPrompt },
-                ...files.map((file) => ({
-                  type: "file" as const,
-                  data: file.buffer,
-                  mediaType: "application/pdf" as const,
-                  filename: file.filename,
+                ...relevantChunks.map((chunk) => ({
+                  type: "text" as const,
+                  chunk_id: chunk.chunk_id,
+                  text: chunk.chunk_text,
                 })),
               ],
             },
@@ -197,11 +203,10 @@ export async function POST(req: NextRequest) {
               content: fullText,
               messageSources: {
                 createMany: {
-                  data: files.map((f) => {
-                    return {
-                      fileId: f.id,
-                    };
-                  }),
+                  data:
+                    combinedFileIds?.map((fileId) => ({
+                      fileId,
+                    })) ?? [],
                 },
               },
             },
