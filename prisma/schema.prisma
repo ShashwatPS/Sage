@@ -122,4 +122,17 @@ model File {
   updatedAt       DateTime     @updatedAt
   messageFile     MessageFile?
   messageSources   MessageSource[]
+  chunks          FileChunk[]  
+}
+
+model FileChunk {
+  id          String   @id @default(uuid())
+  fileId      String
+  file        File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  content     String   @db.Text
+  startIndex  Int
+  endIndex    Int
+  createdAt   DateTime @default(now())
+  
+  @@index([fileId])
 }
