@@ -8,7 +8,7 @@
       static async queryByText(
         fileIds: string[],
         query: string,
-        topK: number,
+        topK = 10,
       ): Promise<Results[]> {
         try {
           const index = EmbeddingService.pc.index("sage-vector-index");
@@ -34,7 +34,7 @@
         }
       }
 
-      static  async storeChunks(chunks: ChunkData[], fileId: string) {
+      static async storeChunks(chunks: ChunkData[], fileId: string) {
         try {
           const index = EmbeddingService.pc.index("sage-vector-index");
           
