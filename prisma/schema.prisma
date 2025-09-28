@@ -135,4 +135,5 @@ model FileChunk {
   createdAt   DateTime @default(now())
   
   @@index([fileId])
+  @@index([id])  
 }

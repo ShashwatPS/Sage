@@ -13,5 +13,8 @@ CREATE TABLE "public"."FileChunk" (
 -- CreateIndex
 CREATE INDEX "FileChunk_fileId_idx" ON "public"."FileChunk"("fileId");
 
+-- CreateIndex
+CREATE INDEX "FileChunk_id_idx" ON "public"."FileChunk"("id");
+
 -- AddForeignKey
 ALTER TABLE "public"."FileChunk" ADD CONSTRAINT "FileChunk_fileId_fkey" FOREIGN KEY ("fileId") REFERENCES "public"."File"("id") ON DELETE CASCADE ON UPDATE CASCADE;
