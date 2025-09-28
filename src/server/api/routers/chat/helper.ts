@@ -38,7 +38,7 @@ export async function uploadToSupabase(
       },
     });
 
-    const ChunkService = await import('../../../../lib/pdf-processor');
+    const ChunkService = await import('../../../../lib/chunk-processor');
     await ChunkService.ChunkingService.processAndStoreChunks(uploadData.path, dbFile.id);
   
     return {
