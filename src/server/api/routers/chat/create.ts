@@ -174,4 +174,22 @@ export const chatRouter = createTRPCRouter({
 
       return fileChunk.content;
     }),
+
+    getChatID: protectedProcedure
+    .input(z.object({ userId: z.string(), title: z.string().optional() }))
+    .query(async ({ ctx, input }) => {
+      const { userId } = input;
+      const chat = await ctx.db.chat.create({
+        data: {
+          userId,
+          title: input.title ?? "New Chat",
+        },
+      });
+
+      if (!chat) {
+        throw new Error("Chat not found");
+      }
+
+      return chat.id;
+    }),
 });

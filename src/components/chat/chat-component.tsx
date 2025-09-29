@@ -1,8 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useState } from "react";
-import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport, type UIMessage } from "ai";
+import type { UIMessage } from "ai";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { X } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -21,6 +20,7 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import dynamic from "next/dynamic";
+import { useSession } from "next-auth/react";
 
 const DocumentViewer = dynamic(
   () => import("@/components/document/document-viewer"),
@@ -35,17 +35,39 @@ interface CitationData {
   fileId: string;
 }
 
-export function ChatComponent({ chatId }: ChatComponentProps) {
+export function ChatComponent({ chatId: initialChatId }: ChatComponentProps) {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const [citationData, setCitationData] = useState<CitationData | null>(null);
   const [selectedChunkId, setSelectedChunkId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<UIMessage[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  // Local state to manage chatId
+  const [currentChatId, setCurrentChatId] = useState<string | null>(initialChatId ?? null);
   const utils = api.useUtils();
 
-  // Use tRPC to fetch chat history
+  const { data: session } = useSession();
+
+  // For handling new chat creation
+  const { data: newChatId } = api.chat.getChatID.useQuery(
+    { userId: session?.user.id ?? "", title: "New Chat" },
+    { 
+      enabled: !!session?.user.id && !currentChatId,
+    }
+  );
+
+  // Update currentChatId when new chatID is created
+  useEffect(() => {
+    if (newChatId && !currentChatId) {
+      setCurrentChatId(newChatId);
+      router.push(`/chat/${newChatId}`);
+    }
+  }, [newChatId, currentChatId, router]);
+
+  // Use tRPC to fetch chat history only when we have a chatId
   const { data: chatData } = api.chat.getById.useQuery(
-    { id: chatId! },
-    { enabled: !!chatId },
+    { id: currentChatId! },
+    { enabled: !!currentChatId },
   );
 
   useEffect(() => {
@@ -62,48 +84,9 @@ export function ChatComponent({ chatId }: ChatComponentProps) {
     }
   }, [chatData?.messages]);
 
-  // Initialize useChat with AI SDK 5.0 API
-  const { messages, status, sendMessage, setMessages } = useChat({
-    transport: new DefaultChatTransport({
-      api: "/api/chat",
-      prepareSendMessagesRequest: ({ messages, id, body }) => {
-        return {
-          body: {
-            message: messages.at(-1)?.parts.find((part) => part.type === "text")
-              ?.text,
-            chatId,
-            ...body,
-          },
-        };
-      },
-    }),
-    onData: (data) => {
-      console.log("abhijeet data", data);
-
-      if (data.type === "data-chatId") {
-        const chatId = (data.data as { chatId: string }).chatId;
-        utils.chat.getById
-          .prefetch({ id: chatId })
-          .then(() => {
-            router.push(`/chat/${chatId}`);
-          })
-          .catch((e) => {
-            console.log("error in prefetch", e);
-          });
-      }
-    },
-    onFinish: () => {
-      console.log("abhijeet onFinish");
-      void utils.chat.getById.invalidate();
-    },
-  });
-
-  const isLoading = status === "submitted" || status === "streaming";
-
-  
   const { data: fileId } = api.chat.getFileByChunk.useQuery(
     { chunkId: selectedChunkId ?? "" },
-    { enabled: !!selectedChunkId }, 
+    { enabled: !!selectedChunkId },
   );
 
   useEffect(() => {
@@ -134,11 +117,60 @@ export function ChatComponent({ chatId }: ChatComponentProps) {
   ) => {
     if (!messageText.trim() || isLoading) return;
 
-    // Send message using AI SDK 5.0 API
-    await sendMessage({ text: messageText }, { body: { fileIds } });
+    setIsLoading(true);
 
-    // Note: Chat ID management will be handled by the API route
-    // and should automatically redirect if needed
+    const userMessage: UIMessage = {
+      id: `user-${Date.now()}`,
+      role: "user",
+      parts: [{ type: "text", text: messageText }],
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: messageText,
+          chatId: currentChatId,
+          fileIds,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to send message");
+      }
+
+      const data = (await response.json()) as { message: string };
+
+      const assistantMessage: UIMessage = {
+        id: `assistant-${Date.now()}`,
+        role: "assistant",
+        parts: [{ type: "text", text: data.message }],
+      };
+
+      setMessages(prev => [...prev, assistantMessage]);
+
+      // Invalidate cache to refresh data
+      await utils.chat.getById.invalidate();
+
+    } catch (error) {
+      console.error("Error sending message:", error);
+      
+      // Add error message to UI
+      const errorMessage: UIMessage = {
+        id: `error-${Date.now()}`,
+        role: "assistant",
+        parts: [{ type: "text", text: "Sorry, there was an error processing your message. Please try again." }],
+      };
+
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -184,13 +216,6 @@ export function ChatComponent({ chatId }: ChatComponentProps) {
                             : ""
                         }`}
                       >
-                        {/* <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
-                          {message.role === 'user' ? (
-                            <User className="w-4 h-4" />
-                          ) : (
-                            <Bot className="w-4 h-4" />
-                          )}
-                        </div> */}
                         <div
                           className={`rounded-lg px-4 py-2 ${
                             message.role === "user" ? "bg-muted" : ""
@@ -200,7 +225,6 @@ export function ChatComponent({ chatId }: ChatComponentProps) {
                             {message.parts
                               ?.filter((part) => part.type === "text")
                               .map((part, _index: number) => {
-                                // return part.text;
                                 return (
                                   <Streamdown
                                     components={{
@@ -226,7 +250,7 @@ export function ChatComponent({ chatId }: ChatComponentProps) {
                                             </span>
                                           </TooltipTrigger>
                                           <TooltipContent>
-                                            <p>{"Chekcing a few things"}</p>
+                                            <p>{"Checking a few things"}</p>
                                           </TooltipContent>
                                         </Tooltip>
                                       ),
@@ -242,6 +266,18 @@ export function ChatComponent({ chatId }: ChatComponentProps) {
                       </div>
                     </div>
                   ))}
+                  
+                  {isLoading && (
+                    <div className="flex justify-start">
+                      <div className="rounded-lg px-4 py-2">
+                        <div className="flex items-center space-x-2">
+                          <div className="h-2 w-2 bg-gray-500 rounded-full animate-bounce"></div>
+                          <div className="h-2 w-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                          <div className="h-2 w-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </ScrollArea>

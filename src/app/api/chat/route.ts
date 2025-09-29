@@ -1,10 +1,5 @@
 import { google } from "@ai-sdk/google";
-import {
-  createUIMessageStream,
-  createUIMessageStreamResponse,
-  smoothStream,
-  streamText,
-} from "ai";
+import { generateText } from "ai";
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
@@ -51,13 +46,11 @@ export async function POST(req: NextRequest) {
     }
 
     const body = (await req.json()) as unknown;
-
     console.log("abhijeet body", body);
     const { message, chatId, fileIds } = requestSchema.parse(body);
 
-    let currentChatId = chatId;
-    let messageHistory: Array<{ role: "user" | "assistant"; content: string }> =
-      [];
+    const currentChatId = chatId;
+    let messageHistory: Array<{ role: "user" | "assistant"; content: string }> = [];
 
     // If chatId exists, load message history from database
     if (currentChatId) {
@@ -72,14 +65,7 @@ export async function POST(req: NextRequest) {
         content: msg.content,
       }));
     } else {
-      // Create new chat for first message
-      const chat = await db.chat.create({
-        data: {
-          userId: session.user.id,
-          title: message.slice(0, 50) + (message.length > 50 ? "..." : ""),
-        },
-      });
-      currentChatId = chat.id;
+      throw new Error("Chat ID is required to send a message");
     }
 
     const oldFilesID = await db.chat.findMany({
@@ -114,7 +100,7 @@ export async function POST(req: NextRequest) {
       ]),
     );
 
-    console.log("Combined FileIds", combinedFileIds);
+    console.log("Combined FileIds12", combinedFileIds);
     console.log("FileIds", fileIds);
 
     // Save user message to database
@@ -141,84 +127,71 @@ export async function POST(req: NextRequest) {
       message,
     );
 
-    const stream = createUIMessageStream({
-      execute: async ({ writer }) => {
-        // Initialize Gemini model
-        const model = google("gemini-2.5-flash");
+    const model = google("gemini-2.5-flash");
 
-        const userPrompt =
-          messageHistory
-            .map((msg) => {
-              return `${msg.role}: ${msg.content}`;
-            })
-            .join("\n") +
-          "\n\n" +
-          relevantChunks
-            .map((chunk) => {
-              return `<chunk chunk_id=[${chunk.chunk_id}]></chunk>`;
-            })
-            .join("\n") +
-          "\n\n";
+    const userPrompt =
+      messageHistory
+        .map((msg) => {
+          return `${msg.role}: ${msg.content}`;
+        })
+        .join("\n") +
+      "\n\n" +
+      relevantChunks
+        .map((chunk) => {
+          return `<chunk chunk_id=[${chunk.chunk_id}]></chunk>`;
+        })
+        .join("\n") +
+      "\n\n";
 
-        console.log("\n\n User prompt \n\n", userPrompt);
-        console.log("\n\n Relevant Chunks \n\n ", relevantChunks);
+    console.log("\n\n User prompt \n\n", userPrompt);
+    console.log("\n\n Relevant Chunks \n\n ", relevantChunks);
 
-        // Stream response from Gemini
-        const result = streamText({
-          model,
-          messages: [
-            { role: "system", content: PROMPT },
-            {
-              role: "user",
-              content: [
-                { type: "text", text: userPrompt },
-                ...relevantChunks.map((chunk) => ({
-                  type: "text" as const,
-                  chunk_id: chunk.chunk_id,
-                  text: chunk.chunk_text,
-                })),
-              ],
-            },
+    // Non-streaming response from Gemini
+    const result = await generateText({
+      model,
+      messages: [
+        { role: "system", content: PROMPT },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: userPrompt },
+            ...relevantChunks.map((chunk) => ({
+              type: "text" as const,
+              chunk_id: chunk.chunk_id,
+              text: chunk.chunk_text,
+            })),
           ],
-          temperature: 0.7,
-          experimental_transform: smoothStream(),
-          onFinish: (e) => {
-            console.log("finished streaming");
-          },
-        });
-
-        writer.merge(result.toUIMessageStream());
-        const fullText = await result.text;
-        console.log("abhijeet fullText", fullText);
-        writer.write({
-          type: "data-chatId",
-          data: {
-            chatId: currentChatId,
-          },
-          transient: true,
-        });
-
-        if (fullText) {
-          await db.message.create({
-            data: {
-              chatId: currentChatId,
-              role: "ASSISTANT",
-              content: fullText,
-              messageSources: {
-                createMany: {
-                  data:
-                    combinedFileIds?.map((fileId) => ({
-                      fileId,
-                    })) ?? [],
-                },
-              },
-            },
-          });
-        }
-      },
+        },
+      ],
+      temperature: 0.7,
     });
 
-    return createUIMessageStreamResponse({ stream });
+    const fullText = result.text;
+    console.log("abhijeet fullText", fullText);
+
+    // Save assistant message to database
+    if (fullText) {
+      await db.message.create({
+        data: {
+          chatId: currentChatId,
+          role: "ASSISTANT",
+          content: fullText,
+          messageSources: {
+            createMany: {
+              data:
+                combinedFileIds?.map((fileId) => ({
+                  fileId,
+                })) ?? [],
+            },
+          },
+        },
+      });
+    }
+
+    return Response.json({
+      message: fullText,
+    });
+
   } catch (error) {
     console.error("Chat API error:", error);
     return new Response("Internal Server Error", { status: 500 });
