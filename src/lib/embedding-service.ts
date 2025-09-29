@@ -17,15 +17,19 @@
             query: { 
                 topK: topK,
                 inputs: { text: query },
+                filter: {
+                  file_id: { $in: fileIds },
+                },
              },
             fields: ["chunk_id", "file_id", "chunk_text"],
           });
 
-          const processdArray: { chunk_id: string, file_id: string, chunk_text: string }[] = results.result.hits.map(
-            (hit) => (hit as { fields: { chunk_id: string, file_id: string, chunk_text: string } }).fields
+          const chunkIds: Results[] = results.result.hits.map(
+            (hit) => (hit as { fields: { chunk_id: string, chunk_text: string } }).fields
           );
 
-          const chunkIds: Results[] = processdArray.filter(item => fileIds.includes(item.file_id)).map(item =>  ({ chunk_id: item.chunk_id, chunk_text: item.chunk_text }));
+          console.log("FileIds check: ", fileIds);
+          console.log("Processed Array: ", chunkIds);
 
           return chunkIds;
         } catch (error) {
