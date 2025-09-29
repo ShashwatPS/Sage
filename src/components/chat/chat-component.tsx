@@ -4,7 +4,7 @@ import { useRef, useEffect, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { X, FileText } from "lucide-react";
+import { X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { api } from "@/trpc/react";
 import { ChatInput } from "./chat-input";
@@ -15,28 +15,31 @@ import {
   ResizableHandle,
 } from "@/components/ui/resizable";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@/components/ui/tooltip";
 import dynamic from "next/dynamic";
 
-const PdfViewer = dynamic(
-  () => import("@/components/pdf/pdf-viewer").then((mod) => mod.PdfViewer),
-  { ssr: false ,loading: () => <div>Loading...</div>}
-)
+const DocumentViewer = dynamic(
+  () => import("@/components/document/document-viewer"),
+  { ssr: false, loading: () => <div>Loading...</div> },
+);
 
 interface ChatComponentProps {
   chatId?: string;
 }
 interface CitationData {
-  citedText: string;
-  pageNumber?: number;
-  fileUrl: string;
-  sourceId: string;
+  chunkId: string;
+  fileId: string;
 }
 
 export function ChatComponent({ chatId }: ChatComponentProps) {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const [citationData, setCitationData] = useState<CitationData | null>(null);
+  const [selectedChunkId, setSelectedChunkId] = useState<string | null>(null);
   const utils = api.useUtils();
 
   // Use tRPC to fetch chat history
@@ -49,7 +52,8 @@ export function ChatComponent({ chatId }: ChatComponentProps) {
     if (chatData?.messages) {
       const uiMessages: UIMessage[] = chatData.messages.map((message) => ({
         id: message.id,
-        role: message.role === 'USER' ? 'user' as const : 'assistant' as const,
+        role:
+          message.role === "USER" ? ("user" as const) : ("assistant" as const),
         content: message.content,
         createdAt: message.createdAt,
         parts: [{ type: "text", text: message.content }],
@@ -72,62 +76,49 @@ export function ChatComponent({ chatId }: ChatComponentProps) {
           },
         };
       },
-      
     }),
     onData: (data) => {
       console.log("abhijeet data", data);
 
-      if(data.type === 'data-chatId'){
-        const chatId = (data.data as {chatId:string}).chatId
-        utils.chat.getById.prefetch({id:chatId}).then(()=>{
-          router.push(`/chat/${chatId}`)
-        }).catch((e)=>{
-          console.log("error in prefetch", e);
-        })
+      if (data.type === "data-chatId") {
+        const chatId = (data.data as { chatId: string }).chatId;
+        utils.chat.getById
+          .prefetch({ id: chatId })
+          .then(() => {
+            router.push(`/chat/${chatId}`);
+          })
+          .catch((e) => {
+            console.log("error in prefetch", e);
+          });
       }
     },
     onFinish: () => {
       console.log("abhijeet onFinish");
       void utils.chat.getById.invalidate();
-
     },
   });
 
-
   const isLoading = status === "submitted" || status === "streaming";
 
-  const handleCitationClick = ({
-    messageId,
-    citedText,
-    pageNumber,
-    fileId,
-    sourceId,
-  }: {
-    messageId: string;
-    citedText: string;
-    pageNumber: number;
-    fileId: string;
-    sourceId: string;
-  }) => {
-    // setShowPdfViewer(true);
-    console.log("abhijeet citedText", citedText);
-    console.log("abhijeet pageNumber", pageNumber);
-    console.log("abhijeet fileId", fileId);
-    console.log("abhijeet sourceId", sourceId);
-    const message = chatData?.messages.find((msg)=>msg.id===messageId)
-    const file = message?.messageSources[(+sourceId)-1] ?? message?.messageSources.find((file)=>file.fileId===fileId)
-    console.log("abhijeet message", message);
-    console.log("abhijeet file", file);
-    if(!message || !file){
-      return;
-    }
+  
+  const { data: fileId } = api.chat.getFileByChunk.useQuery(
+    { chunkId: selectedChunkId ?? "" },
+    { enabled: !!selectedChunkId }, 
+  );
 
-    setCitationData({
-      citedText,
-      pageNumber,
-      fileUrl: `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${file.file.supabasePath}`,
-      sourceId,
-    })
+  useEffect(() => {
+    if (selectedChunkId && fileId) {
+      console.log("Setting citation data for chunk:", selectedChunkId, "fileId:", fileId);
+      setCitationData({
+        chunkId: selectedChunkId,
+        fileId,
+      });
+    }
+  }, [selectedChunkId, fileId]);
+
+  const handleCitationClick = ({ chunkid }: { chunkid: string }) => {
+    console.log("Citation clicked for chunk ID:", chunkid);
+    setSelectedChunkId(chunkid);
   };
 
   // Auto-scroll to bottom when new messages arrive
@@ -153,12 +144,12 @@ export function ChatComponent({ chatId }: ChatComponentProps) {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       {/* Main content area with resizable panels */}
-      <ResizablePanelGroup direction="horizontal" className="flex-1 min-h-0">
+      <ResizablePanelGroup direction="horizontal" className="min-h-0 flex-1">
         {/* Chat panel */}
         <ResizablePanel defaultSize={citationData ? 60 : 100} minSize={40}>
           <div className="flex h-full min-h-0 flex-col">
             {/* Chat Messages Area */}
-            <ScrollArea className="flex-1 min-h-0 p-4" ref={scrollAreaRef}>
+            <ScrollArea className="min-h-0 flex-1 p-4" ref={scrollAreaRef}>
               {messages.length === 0 ? (
                 <div className="flex h-full flex-col items-center justify-center text-center">
                   <div className="bg-muted mb-4 flex h-16 w-16 items-center justify-center rounded-full">
@@ -219,10 +210,7 @@ export function ChatComponent({ chatId }: ChatComponentProps) {
                                         ...rest
                                       }: {
                                         children: string;
-                                        "cited-text": string;
-                                        "file-page-number": number;
-                                        "file-id": string;
-                                        "source-id": string;
+                                        "chunk-id": string;
                                       }) => (
                                         <Tooltip>
                                           <TooltipTrigger asChild>
@@ -230,13 +218,7 @@ export function ChatComponent({ chatId }: ChatComponentProps) {
                                               className="cursor-pointer text-blue-500"
                                               onClick={() =>
                                                 handleCitationClick({
-                                                  messageId: message.id,
-                                                  citedText: rest["cited-text"],
-                                                  pageNumber:
-                                                    rest["file-page-number"],
-                                                  fileId: rest["file-id"],
-                                                  sourceId: rest["source-id"],
-
+                                                  chunkid: rest["chunk-id"],
                                                 })
                                               }
                                             >
@@ -244,7 +226,7 @@ export function ChatComponent({ chatId }: ChatComponentProps) {
                                             </span>
                                           </TooltipTrigger>
                                           <TooltipContent>
-                                            <p>{rest["cited-text"]}</p>
+                                            <p>{"Chekcing a few things"}</p>
                                           </TooltipContent>
                                         </Tooltip>
                                       ),
@@ -286,10 +268,9 @@ export function ChatComponent({ chatId }: ChatComponentProps) {
                   </Button>
                 </div>
                 <div className="flex-1 overflow-hidden">
-                  <PdfViewer
-                    textToHighlight={citationData.citedText}
-                    initialPage={citationData.pageNumber}
-                    fileUrl={citationData.fileUrl}
+                  <DocumentViewer
+                    fileId={citationData.fileId}
+                    chunkId={citationData.chunkId}
                   />
                 </div>
               </div>

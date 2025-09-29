@@ -1,8 +1,8 @@
 import { WebPDFLoader } from "@langchain/community/document_loaders/web/pdf";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import type { Document } from "langchain/document";
-import { db } from "@/server/db"
-import { v4 as uuidv4 } from 'uuid';
+import { db } from "@/server/db";
+import { v4 as uuidv4 } from "uuid";
 import type { ChunkData } from "../interfaces/chunkData";
 
 export class ChunkingService {
@@ -29,7 +29,8 @@ export class ChunkingService {
 
       let startIndex = 0;
       return langchainChunks.map((chunk, index) => {
-        const content = typeof chunk.pageContent === "string" ? chunk.pageContent : "";
+        const content =
+          typeof chunk.pageContent === "string" ? chunk.pageContent : "";
         const endIndex = startIndex + content.length;
 
         const chunkData: ChunkData = {
@@ -40,7 +41,7 @@ export class ChunkingService {
           endIndex,
         };
 
-        startIndex = endIndex - 150; 
+        startIndex = endIndex - 150;
         return chunkData;
       });
     } catch (e) {
@@ -49,9 +50,13 @@ export class ChunkingService {
     }
   }
 
-  static async processAndStoreChunks(filePath: string, fileId: string): Promise<void> {
+  static async processAndStoreChunks(
+    filePath: string,
+    fileId: string,
+  ): Promise<void> {
     const chunks = await this.extractTextAndChunk(filePath);
-    if (chunks.length === 0) return console.warn("No chunks extracted from PDF");
+    if (chunks.length === 0)
+      return console.warn("No chunks extracted from PDF");
 
     await db.fileChunk.createMany({
       data: chunks.map((chunk) => ({
@@ -60,25 +65,57 @@ export class ChunkingService {
         content: chunk.content,
         startIndex: chunk.startIndex,
         endIndex: chunk.endIndex,
-      }))
+      })),
     });
 
-    const Embedded = await import('./embedding-service');
+    const Embedded = await import("./embedding-service");
     await Embedded.EmbeddingService.storeChunks(chunks, fileId);
   }
 
-  static reconstructDocument(chunks: ChunkData[]): string {
-    const sorted = chunks.sort((a, b) => a.startIndex - b.startIndex);
-    let result = '';
-    let lastEnd = 0;
+  static async reconstructDocument(
+  fileID: string,
+): Promise<
+  { chunkId: string; text: string; startIndex: number; endIndex: number }[]
+> {
+  const chunks = await db.fileChunk.findMany({
+    where: { fileId: fileID },
+    orderBy: { startIndex: 'asc' }
+  });
 
-    for (const chunk of sorted) {
-      const uniqueStart = Math.max(chunk.startIndex, lastEnd);
-      const uniqueText = chunk.content.slice(uniqueStart - chunk.startIndex);
-      result += uniqueText;
-      lastEnd = chunk.endIndex;
-    }
+  if (chunks.length === 0) return [];
 
-    return result;
+  const result: {
+    chunkId: string;
+    text: string;
+    startIndex: number;
+    endIndex: number;
+  }[] = [];
+
+  if (chunks.length > 0) {
+    result.push({
+      chunkId: chunks[0]!.id,
+      text: chunks[0]!.content,
+      startIndex: chunks[0]!.startIndex,
+      endIndex: chunks[0]!.endIndex,
+    });
   }
-}
+
+  for (let i = 1; i < chunks.length; i++) {
+    const currentChunk = chunks[i];
+    const overlapSize = 150; 
+    
+    const textWithoutOverlap = currentChunk!.content.slice(overlapSize);
+    const adjustedStartIndex = currentChunk!.startIndex + overlapSize;
+    
+    if (textWithoutOverlap.length > 0) {
+      result.push({
+        chunkId: currentChunk!.id,
+        text: textWithoutOverlap,
+        startIndex: adjustedStartIndex,
+        endIndex: currentChunk!.endIndex,
+      });
+    }
+  }
+
+  return result;
+}}

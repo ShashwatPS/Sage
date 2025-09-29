@@ -114,6 +114,9 @@ export async function POST(req: NextRequest) {
       ]),
     );
 
+    console.log("Combined FileIds", combinedFileIds);
+    console.log("FileIds", fileIds);
+
     // Save user message to database
     await db.message.create({
       data: {

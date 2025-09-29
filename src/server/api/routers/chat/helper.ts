@@ -1,6 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import { db } from "@/server/db";
-
+import { ChunkingService } from "@/lib/chunk-processor";
 
 interface FileUploadResponse {
     id: string;
@@ -49,4 +49,14 @@ export async function uploadToSupabase(
       id: dbFile.id,
     };
   }
+
+  export async function getDocByFileId(fileId: string): Promise<{ chunkId: string; text: string; startIndex: number; endIndex: number }[]> {
+    const reconstructed = await ChunkingService.reconstructDocument(fileId);
+
+    if (!reconstructed) {
+      throw new Error("Failed to reconstruct document");
+    }
+
+    return reconstructed;
+}
   

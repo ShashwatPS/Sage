@@ -5,7 +5,7 @@ import {
   protectedProcedure,
 } from "@/server/api/trpc";
 import { base64ToFile } from "@/lib/utils";
-import { uploadToSupabase } from "./helper";
+import { uploadToSupabase, getDocByFileId } from "./helper";
 
 export const chatRouter = createTRPCRouter({
   list: protectedProcedure.query(async ({ ctx }) => {
@@ -134,5 +134,44 @@ export const chatRouter = createTRPCRouter({
         console.error("Error in uploadFiles mutation:", error);
         throw new Error("Failed to upload files");
       }
+    }),
+
+    getDocByFileId: protectedProcedure
+    .input(z.object({ fileId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const { fileId } = input;
+      return getDocByFileId(fileId);
+    }),
+
+    getFileByChunk: protectedProcedure
+    .input(z.object({ chunkId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const { chunkId } = input;
+      const fileChunk = await ctx.db.fileChunk.findFirst({
+        where: { id: chunkId },
+        select: { fileId: true },
+      });
+
+      if (!fileChunk) {
+        throw new Error("File chunk not found");
+      }
+
+      return fileChunk.fileId;
+    }),
+
+    getChunkContent: protectedProcedure
+    .input(z.object({ chunkId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const { chunkId } = input;
+      const fileChunk = await ctx.db.fileChunk.findFirst({
+        where: { id: chunkId },
+        select: { content: true },
+      });
+
+      if (!fileChunk) {
+        throw new Error("File chunk not found");
+      }
+
+      return fileChunk.content;
     }),
 });
