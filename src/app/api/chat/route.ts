@@ -60,6 +60,13 @@ export async function POST(req: NextRequest) {
         select: { role: true, content: true },
       });
 
+      if ( existingMessages.length === 0) {
+        await db.chat.update({
+          where: { id: currentChatId },
+          data: { title: message.slice(0, 50) + (message.length > 50 ? "..." : "") },
+        })
+      }
+
       messageHistory = existingMessages.map((msg) => ({
         role: msg.role === "USER" ? ("user" as const) : ("assistant" as const),
         content: msg.content,
