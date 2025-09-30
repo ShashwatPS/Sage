@@ -50,7 +50,8 @@ export async function POST(req: NextRequest) {
     const { message, chatId, fileIds } = requestSchema.parse(body);
 
     const currentChatId = chatId;
-    let messageHistory: Array<{ role: "user" | "assistant"; content: string }> = [];
+    let messageHistory: Array<{ role: "user" | "assistant"; content: string }> =
+      [];
 
     // If chatId exists, load message history from database
     if (currentChatId) {
@@ -60,11 +61,13 @@ export async function POST(req: NextRequest) {
         select: { role: true, content: true },
       });
 
-      if ( existingMessages.length === 0) {
+      if (existingMessages.length === 0) {
         await db.chat.update({
           where: { id: currentChatId },
-          data: { title: message.slice(0, 50) + (message.length > 50 ? "..." : "") },
-        })
+          data: {
+            title: message.slice(0, 50) + (message.length > 50 ? "..." : ""),
+          },
+        });
       }
 
       messageHistory = existingMessages.map((msg) => ({
@@ -195,10 +198,27 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    return Response.json({
-      message: fullText,
+    const encoder = new TextEncoder();
+
+    const stream = new ReadableStream({
+      async start(controller) {
+        const text = fullText;
+        const chunkSize = 100;
+        for (let i = 0; i < text.length; i += chunkSize) {
+          const part = text.substring(i, i + chunkSize);
+          controller.enqueue(encoder.encode(part));
+          // Artificial delay to simulate streaming
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        controller.close();
+      },
     });
 
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+      },
+    });
   } catch (error) {
     console.error("Chat API error:", error);
     return new Response("Internal Server Error", { status: 500 });

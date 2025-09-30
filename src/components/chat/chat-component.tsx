@@ -42,7 +42,6 @@ export function ChatComponent({ chatId: initialChatId }: ChatComponentProps) {
   const [selectedChunkId, setSelectedChunkId] = useState<string | null>(null);
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  // Local state to manage chatId
   const [currentChatId, setCurrentChatId] = useState<string | null>(initialChatId ?? null);
   const utils = api.useUtils();
 
@@ -127,6 +126,16 @@ export function ChatComponent({ chatId: initialChatId }: ChatComponentProps) {
 
     setMessages(prev => [...prev, userMessage]);
 
+   // Empty content to start streaming
+    const assistantMessageId = `assistant-${Date.now()}`;
+    const assistantMessage: UIMessage = {
+      id: assistantMessageId,
+      role: "assistant",
+      parts: [{ type: "text", text: "" }],
+    };
+
+    setMessages(prev => [...prev, assistantMessage]);
+
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -144,30 +153,52 @@ export function ChatComponent({ chatId: initialChatId }: ChatComponentProps) {
         throw new Error("Failed to send message");
       }
 
-      const data = (await response.json()) as { message: string };
+      setIsLoading(false)
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      
+      if (!reader) {
+        throw new Error("No reader available");
+      }
 
-      const assistantMessage: UIMessage = {
-        id: `assistant-${Date.now()}`,
-        role: "assistant",
-        parts: [{ type: "text", text: data.message }],
-      };
+      let accumulatedText = "";
 
-      setMessages(prev => [...prev, assistantMessage]);
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) break;
+        
+        const chunk = decoder.decode(value, { stream: true });
+        accumulatedText += chunk;
 
-      // Invalidate cache to refresh data
+        // Update the assistant message with the accumulated text
+        setMessages(prev => 
+          prev.map(msg => 
+            msg.id === assistantMessageId 
+              ? { 
+                  ...msg, 
+                  parts: [{ type: "text", text: accumulatedText }] 
+                }
+              : msg
+          )
+        );
+      }
+
       await utils.chat.getById.invalidate();
 
     } catch (error) {
       console.error("Error sending message:", error);
       
-      // Add error message to UI
-      const errorMessage: UIMessage = {
-        id: `error-${Date.now()}`,
-        role: "assistant",
-        parts: [{ type: "text", text: "Sorry, there was an error processing your message. Please try again." }],
-      };
-
-      setMessages(prev => [...prev, errorMessage]);
+      setMessages(prev => 
+        prev.map(msg => 
+          msg.id === assistantMessageId 
+            ? { 
+                ...msg, 
+                parts: [{ type: "text", text: "Sorry, there was an error processing your message. Please try again." }] 
+              }
+            : msg
+        )
+      );
     } finally {
       setIsLoading(false);
     }
@@ -221,7 +252,7 @@ export function ChatComponent({ chatId: initialChatId }: ChatComponentProps) {
                             message.role === "user" ? "bg-muted" : ""
                           }`}
                         >
-                          <p className="whitespace-pre-wrap">
+                          <div className="whitespace-pre-wrap">
                             {message.parts
                               ?.filter((part) => part.type === "text")
                               .map((part, _index: number) => {
@@ -261,7 +292,7 @@ export function ChatComponent({ chatId: initialChatId }: ChatComponentProps) {
                                   </Streamdown>
                                 );
                               })}
-                          </p>
+                          </div>
                         </div>
                       </div>
                     </div>
