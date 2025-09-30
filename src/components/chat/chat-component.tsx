@@ -169,7 +169,7 @@ export function ChatComponent({ chatId: initialChatId }: ChatComponentProps) {
         if (done) break;
         
         const chunk = decoder.decode(value, { stream: true });
-        accumulatedText += chunk;
+        accumulatedText = chunk;
 
         // Update the assistant message with the accumulated text
         setMessages(prev => 

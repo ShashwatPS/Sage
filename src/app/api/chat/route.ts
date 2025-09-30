@@ -202,14 +202,15 @@ export async function POST(req: NextRequest) {
 
     const stream = new ReadableStream({
       async start(controller) {
-        const text = fullText;
+        let cumulative = "";
         const chunkSize = 100;
-        for (let i = 0; i < text.length; i += chunkSize) {
-          const part = text.substring(i, i + chunkSize);
-          controller.enqueue(encoder.encode(part));
-          // Artificial delay to simulate streaming
-          await new Promise((r) => setTimeout(r, 50));
+
+        for (let i = 0; i < fullText.length; i += chunkSize) {
+          cumulative = fullText.substring(0, i + chunkSize);
+          controller.enqueue(encoder.encode(cumulative));
+          await new Promise((res) => setTimeout(res, 100));
         }
+
         controller.close();
       },
     });
