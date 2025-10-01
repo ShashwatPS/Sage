@@ -64,8 +64,10 @@ export function ChatComponent({ chatId: initialChatId }: ChatComponentProps) {
     if (newChatId && !currentChatId) {
       setCurrentChatId(newChatId);
       router.push(`/chat/${newChatId}`);
+      // Invalidate chat list to refresh sidebar
+      void utils.chat.list.invalidate();
     }
-  }, [newChatId, currentChatId, router]);
+  }, [newChatId, currentChatId, router, utils.chat.list]);
 
   // Use tRPC to fetch chat history only when we have a chatId
   const { data: chatData } = api.chat.getById.useQuery(
