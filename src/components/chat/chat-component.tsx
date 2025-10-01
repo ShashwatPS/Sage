@@ -47,6 +47,10 @@ export function ChatComponent({ chatId: initialChatId }: ChatComponentProps) {
 
   const { data: session } = useSession();
 
+  useEffect(() => {
+    setCurrentChatId(initialChatId ?? null);
+  }, [initialChatId]);
+
   // For handling new chat creation
   const { data: newChatId } = api.chat.getChatID.useQuery(
     { userId: session?.user.id ?? "", title: "New Chat" },
@@ -80,8 +84,10 @@ export function ChatComponent({ chatId: initialChatId }: ChatComponentProps) {
         parts: [{ type: "text", text: message.content }],
       }));
       setMessages(uiMessages);
+    } else if (!currentChatId) {
+      setMessages([]);
     }
-  }, [chatData?.messages]);
+  }, [chatData?.messages, currentChatId]);
 
   const { data: fileId } = api.chat.getFileByChunk.useQuery(
     { chunkId: selectedChunkId ?? "" },
