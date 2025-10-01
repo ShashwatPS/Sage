@@ -12,10 +12,10 @@ Analyze the following QUESTION with absolute precision. Your analysis must meet 
 
 ## CITATION RULES (STRICTLY APPLY):  
 - Source-Citations with Chunk Reference:  
-  <citation chunk-id="[Chunk ID]">Finish</citation>  
+  <citation chunk-id="[Chunk ID]"></citation>  
 - Always reference the specific chunk_id when citing information from document chunks
 - Use the chunk_id provided in the <chunk chunk_id=[ID]></chunk> tags to create accurate citations
-- Example citation: <citation chunk-id="abc123">Finish</citation>  
+- Example citation: <citation chunk-id="abc123"></citation>  
 
 ## CHUNK PROCESSING INSTRUCTIONS:
 - Each document chunk is provided with a unique chunk_id in the format <chunk chunk_id=[ID]></chunk>
@@ -36,6 +36,74 @@ const requestSchema = z.object({
   chatId: z.string().optional(),
   fileIds: z.array(z.string()).optional(),
 });
+
+const validateChunk = async (id: string): Promise<string | false> => {
+  try {
+    const data = await db.fileChunk.findUnique({
+      where: { id },
+      select: { content: true },
+    });
+    if (data) {
+      return data.content;
+    }
+    return false;
+  } catch (error) {
+    console.error(`Database error for chunk ID: ${id}`, error);
+    return false;
+  }
+};
+
+const processCitationsInText = async (text: string): Promise<string> => {
+  const citationRegex =
+    /<citation\s+chunk-id="([^"]+)">([\s\S]*?)<\/citation>/g;
+
+  const chunkIds = new Set<string>();
+  let match;
+
+  while ((match = citationRegex.exec(text)) !== null) {
+    chunkIds.add(match[1]!);
+  }
+
+  console.log("Citation regex matches:", Array.from(chunkIds));
+  console.log("Unique chunk IDs found:", chunkIds);
+
+  const validationResults = new Map<string, boolean | string>();
+  const validationPromises = Array.from(chunkIds).map(async (chunkId) => {
+    const isValid = await validateChunk(chunkId);
+    validationResults.set(chunkId, isValid);
+  });
+
+  await Promise.all(validationPromises);
+
+  let citationCount = 1;
+  const citationMap = new Map<string, number>();
+  const processedText = text.replace(
+    citationRegex,
+    (fullMatch, chunkId: string) => {
+      if (!citationMap.has(chunkId)) {
+        citationMap.set(chunkId, citationCount++);
+      }
+      const citationNumber = citationMap.get(chunkId);
+
+      const isValid = validationResults.get(chunkId);
+
+      if (typeof isValid === "string") {
+        const escapedContent = isValid
+          .replace(/"/g, "&quot;")
+          .replace(/\r?\n/g, " ") 
+          .replace(/\s+/g, " ") 
+          .trim()
+          .slice(0, 100) + (isValid.length > 50 ? "..." : ""); 
+        return `<citation chunk-id="${chunkId}" cited-text="${escapedContent}">[${citationNumber}]</citation>`;
+      } else {
+        console.warn(`Removing invalid citation: ${chunkId}`);
+        return "";
+      }
+    },
+  );
+
+  return processedText;
+};
 
 export async function POST(req: NextRequest) {
   try {
@@ -177,15 +245,19 @@ export async function POST(req: NextRequest) {
     });
 
     const fullText = result.text;
-    console.log("abhijeet fullText", fullText);
 
-    // Save assistant message to database
-    if (fullText) {
+    const encoder = new TextEncoder();
+
+    console.log("Full Text before processing:", fullText);
+    const processedText = await processCitationsInText(fullText);
+    console.log("Processed Text:", processedText);
+
+    if (processedText) {
       await db.message.create({
         data: {
           chatId: currentChatId,
           role: "ASSISTANT",
-          content: fullText,
+          content: processedText,
           messageSources: {
             createMany: {
               data:
@@ -198,15 +270,13 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const encoder = new TextEncoder();
-
     const stream = new ReadableStream({
       async start(controller) {
         let cumulative = "";
         const chunkSize = 100;
 
-        for (let i = 0; i < fullText.length; i += chunkSize) {
-          cumulative = fullText.substring(0, i + chunkSize);
+        for (let i = 0; i < processedText.length; i += chunkSize) {
+          cumulative = processedText.substring(0, i + chunkSize);
           controller.enqueue(encoder.encode(cumulative));
           await new Promise((res) => setTimeout(res, 100));
         }

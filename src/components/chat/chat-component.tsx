@@ -266,6 +266,7 @@ export function ChatComponent({ chatId: initialChatId }: ChatComponentProps) {
                                       }: {
                                         children: string;
                                         "chunk-id": string;
+                                        "cited-text": string;
                                       }) => (
                                         <Tooltip>
                                           <TooltipTrigger asChild>
@@ -281,7 +282,7 @@ export function ChatComponent({ chatId: initialChatId }: ChatComponentProps) {
                                             </span>
                                           </TooltipTrigger>
                                           <TooltipContent>
-                                            <p>{"Checking a few things"}</p>
+                                            <p>{rest["cited-text"]}</p>
                                           </TooltipContent>
                                         </Tooltip>
                                       ),
