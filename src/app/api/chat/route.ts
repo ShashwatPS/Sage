@@ -53,6 +53,26 @@ const validateChunk = async (id: string): Promise<string | false> => {
   }
 };
 
+const removeIncompleteCitations = (text: string): string => {
+  const completeCitationRegex = /<citation\s+chunk-id="[^"]*"(?:\s+cited-text="[^"]*")?\>\[?\d*\]?<\/citation>/g;
+  
+  const lastCitationStart = text.lastIndexOf('<citation');
+  
+  if (lastCitationStart === -1) {
+    return text;
+  }
+  
+  const textFromLastCitation = text.substring(lastCitationStart);
+  const hasCompleteCitation = completeCitationRegex.test(textFromLastCitation);
+  
+  if (!hasCompleteCitation) {
+    return text.substring(0, lastCitationStart);
+  }
+  
+  return text;
+};
+
+
 const processCitationsInText = async (text: string): Promise<string> => {
   const citationRegex =
     /<citation\s+chunk-id="([^"]+)">([\s\S]*?)<\/citation>/g;
@@ -277,7 +297,8 @@ export async function POST(req: NextRequest) {
 
         for (let i = 0; i < processedText.length; i += chunkSize) {
           cumulative = processedText.substring(0, i + chunkSize);
-          controller.enqueue(encoder.encode(cumulative));
+          const cleanedText = removeIncompleteCitations(cumulative);
+          controller.enqueue(encoder.encode(cleanedText));
           await new Promise((res) => setTimeout(res, 100));
         }
 
