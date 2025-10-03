@@ -21,6 +21,7 @@ export class ChunkingService {
           type: "document_url",
           documentUrl: `${publicURL}`,
         },
+        includeImageBase64: false,
       });
 
       const markdownSplitter = RecursiveCharacterTextSplitter.fromLanguage(
@@ -48,8 +49,8 @@ export class ChunkingService {
               content: chunk.pageContent,
               // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
               startIndex: chunk.metadata?.loc?.lines?.from,
-              // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-              endIndex: chunk.metadata?.loc?.lines?.to - 1,
+              // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
+              endIndex: chunk.metadata?.loc?.lines?.to,
               page: page.index + 1,
             });
           }
