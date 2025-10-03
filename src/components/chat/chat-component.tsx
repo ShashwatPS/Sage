@@ -33,13 +33,15 @@ interface ChatComponentProps {
 interface CitationData {
   chunkId: string;
   fileId: string;
+  page: number;
+  startIndex: number;
+  endIndex: number;
 }
 
 export function ChatComponent({ chatId: initialChatId }: ChatComponentProps) {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const [citationData, setCitationData] = useState<CitationData | null>(null);
-  const [selectedChunkId, setSelectedChunkId] = useState<string | null>(null);
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [currentChatId, setCurrentChatId] = useState<string | null>(initialChatId ?? null);
@@ -91,27 +93,18 @@ export function ChatComponent({ chatId: initialChatId }: ChatComponentProps) {
     }
   }, [chatData?.messages, currentChatId]);
 
-  const { data: fileId } = api.chat.getFileByChunk.useQuery(
-    { chunkId: selectedChunkId ?? "" },
-    { enabled: !!selectedChunkId },
-  );
-
-  useEffect(() => {
-    if (selectedChunkId && fileId) {
-      console.log("Setting citation data for chunk:", selectedChunkId, "fileId:", fileId);
-      setCitationData({
-        chunkId: selectedChunkId,
-        fileId,
-      });
-    }
-  }, [selectedChunkId, fileId]);
-
-  const handleCitationClick = ({ chunkid }: { chunkid: string }) => {
+  const handleCitationClick = ({ chunkid, page, startIndex, endIndex, fileId }: { chunkid: string, page: string, startIndex: string, endIndex: string, fileId: string }) => {
     console.log("Citation clicked for chunk ID:", chunkid);
-    setSelectedChunkId(chunkid);
+    
+    setCitationData({
+      chunkId: chunkid,
+      fileId: fileId,
+      page: parseInt(page, 10),
+      startIndex: parseInt(startIndex, 10),
+      endIndex: parseInt(endIndex, 10),
+    });
   };
 
-  // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     if (scrollAreaRef.current) {
       scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
@@ -275,6 +268,10 @@ export function ChatComponent({ chatId: initialChatId }: ChatComponentProps) {
                                         children: string;
                                         "chunk-id": string;
                                         "cited-text": string;
+                                        "page": string;
+                                        "end-index": string;
+                                        "start-index": string;
+                                        "file": string;
                                       }) => (
                                         <Tooltip>
                                           <TooltipTrigger asChild>
@@ -283,6 +280,10 @@ export function ChatComponent({ chatId: initialChatId }: ChatComponentProps) {
                                               onClick={() =>
                                                 handleCitationClick({
                                                   chunkid: rest["chunk-id"],
+                                                  page: rest.page,
+                                                  startIndex: rest["start-index"],
+                                                  endIndex: rest["end-index"],
+                                                  fileId: rest.file,
                                                 })
                                               }
                                             >
@@ -346,7 +347,9 @@ export function ChatComponent({ chatId: initialChatId }: ChatComponentProps) {
                 <div className="flex-1 overflow-hidden">
                   <DocumentViewer
                     fileId={citationData.fileId}
-                    chunkId={citationData.chunkId}
+                    page={citationData.page}
+                    startIndex={citationData.startIndex}
+                    endIndex={citationData.endIndex}
                   />
                 </div>
               </div>

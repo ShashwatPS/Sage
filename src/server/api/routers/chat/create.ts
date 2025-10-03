@@ -143,22 +143,6 @@ export const chatRouter = createTRPCRouter({
       return getDocByFileId(fileId);
     }),
 
-    getFileByChunk: protectedProcedure
-    .input(z.object({ chunkId: z.string() }))
-    .query(async ({ ctx, input }) => {
-      const { chunkId } = input;
-      const fileChunk = await ctx.db.fileChunk.findFirst({
-        where: { id: chunkId },
-        select: { fileId: true },
-      });
-
-      if (!fileChunk) {
-        throw new Error("File chunk not found");
-      }
-
-      return fileChunk.fileId;
-    }),
-
     getChunkContent: protectedProcedure
     .input(z.object({ chunkId: z.string() }))
     .query(async ({ ctx, input }) => {

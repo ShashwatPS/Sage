@@ -2,6 +2,7 @@ import { google } from "@ai-sdk/google";
 import { generateText } from "ai";
 import type { NextRequest } from "next/server";
 import { z } from "zod";
+import markdownToTxt from 'markdown-to-txt';
 
 import { auth } from "@/server/auth";
 import { db } from "@/server/db";
@@ -37,14 +38,14 @@ const requestSchema = z.object({
   fileIds: z.array(z.string()).optional(),
 });
 
-const validateChunk = async (id: string): Promise<string | false> => {
+const validateChunk = async (id: string): Promise<{ content: string; page: number; startIndex: number; endIndex: number; fileId: string } | false> => {
   try {
     const data = await db.fileChunk.findUnique({
       where: { id },
-      select: { content: true },
+      select: { content: true, page: true, startIndex: true, endIndex: true, fileId: true },
     });
     if (data) {
-      return data.content;
+      return data;
     }
     return false;
   } catch (error) {
@@ -54,7 +55,7 @@ const validateChunk = async (id: string): Promise<string | false> => {
 };
 
 const removeIncompleteCitations = (text: string): string => {
-  const completeCitationRegex = /<citation\s+chunk-id="[^"]*"(?:\s+cited-text="[^"]*")?\>\[?\d*\]?<\/citation>/g;
+  const completeCitationRegex = /<citation\s+chunk-id="[^"]*"(?:\s+cited-text="[^"]*")?(?:\s+start-index="[^"]*")?(?:\s+end-index="[^"]*")?(?:\s+page="[^"]*")?(?:\s+file="[^"]*")?\>\[?\d*\]?<\/citation>/g;
   
   const lastCitationStart = text.lastIndexOf('<citation');
   
@@ -87,7 +88,7 @@ const processCitationsInText = async (text: string): Promise<string> => {
   console.log("Citation regex matches:", Array.from(chunkIds));
   console.log("Unique chunk IDs found:", chunkIds);
 
-  const validationResults = new Map<string, boolean | string>();
+  const validationResults = new Map<string, boolean | { content: string; page: number; startIndex: number; endIndex: number, fileId: string }>();
   const validationPromises = Array.from(chunkIds).map(async (chunkId) => {
     const isValid = await validateChunk(chunkId);
     validationResults.set(chunkId, isValid);
@@ -107,14 +108,9 @@ const processCitationsInText = async (text: string): Promise<string> => {
 
       const isValid = validationResults.get(chunkId);
 
-      if (typeof isValid === "string") {
-        const escapedContent = isValid
-          .replace(/"/g, "&quot;")
-          .replace(/\r?\n/g, " ") 
-          .replace(/\s+/g, " ") 
-          .trim()
-          .slice(0, 100) + (isValid.length > 50 ? "..." : ""); 
-        return `<citation chunk-id="${chunkId}" cited-text="${escapedContent}">[${citationNumber}]</citation>`;
+      if (typeof isValid === "object") {
+        const escapedContent = markdownToTxt(isValid.content).replace(/\s+/g, ' ').trim().slice(0, 100) + (markdownToTxt(isValid.content).replace(/\s+/g, ' ').trim().length > 100 ? "..." : "");
+        return `<citation chunk-id="${chunkId}" cited-text="${escapedContent}" start-index="${isValid.startIndex}" end-index="${isValid.endIndex}" page="${isValid.page}" file="${isValid.fileId}">[${citationNumber}]</citation>`;
       } else {
         console.warn(`Removing invalid citation: ${chunkId}`);
         return "";
@@ -224,6 +220,8 @@ export async function POST(req: NextRequest) {
       combinedFileIds ?? [],
       message,
     );
+
+    console.log("Relevant Chunks:", relevantChunks);
 
     const model = google("gemini-2.5-flash");
 

@@ -50,7 +50,7 @@ export async function uploadToSupabase(
     };
   }
 
-  export async function getDocByFileId(fileId: string): Promise<{ chunkId: string; text: string; startIndex: number; endIndex: number }[]> {
+  export async function getDocByFileId(fileId: string): Promise<{ pageNo: number; pageContent: string }[]> {
     const reconstructed = await ChunkingService.reconstructDocument(fileId);
 
     if (!reconstructed) {
