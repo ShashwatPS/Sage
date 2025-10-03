@@ -4,6 +4,8 @@ import { useEffect, useState, useRef } from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { api } from "@/trpc/react";
 import ReactMarkdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
 
 interface DocumentViewerProps {
   fileId: string;
@@ -46,14 +48,22 @@ const HighlightedContent = ({
               ref={isFirstHighlighted ? highlightedRef : null}
               className="bg-yellow-200 px-1 rounded my-1"
             >
-              <ReactMarkdown>{line}</ReactMarkdown>
+              <ReactMarkdown 
+                rehypePlugins={[rehypeRaw, rehypeSanitize]}
+              >
+                {line}
+              </ReactMarkdown>
             </div>
           );
         }
         
         return (
           <div key={index}>
-            <ReactMarkdown>{line}</ReactMarkdown>
+            <ReactMarkdown 
+              rehypePlugins={[rehypeRaw, rehypeSanitize]}
+            >
+              {line}
+            </ReactMarkdown>
           </div>
         );
       })}
@@ -147,7 +157,11 @@ export default function DocumentViewer({
                     onHighlightedRef={handleHighlightedRef}
                   />
                 ) : (
-                  <ReactMarkdown>{pageData.pageContent}</ReactMarkdown>
+                  <ReactMarkdown 
+                    rehypePlugins={[rehypeRaw, rehypeSanitize]}
+                  >
+                    {pageData.pageContent}
+                  </ReactMarkdown>
                 )}
               </div>
             </div>
