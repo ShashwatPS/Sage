@@ -42,7 +42,6 @@ export function ChatComponent({ chatId: initialChatId }: ChatComponentProps) {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const [citationData, setCitationData] = useState<CitationData | null>(null);
-  const [selectedChunkId, setSelectedChunkId] = useState<string | null>(null);
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [currentChatId, setCurrentChatId] = useState<string | null>(initialChatId ?? null);
@@ -96,7 +95,6 @@ export function ChatComponent({ chatId: initialChatId }: ChatComponentProps) {
 
   const handleCitationClick = ({ chunkid, page, startIndex, endIndex, fileId }: { chunkid: string, page: string, startIndex: string, endIndex: string, fileId: string }) => {
     console.log("Citation clicked for chunk ID:", chunkid);
-    setSelectedChunkId(chunkid);
     
     setCitationData({
       chunkId: chunkid,
